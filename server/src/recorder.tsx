@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import { InputStream, View } from '@swmansion/smelter';
 import { SmelterInstance } from './smelter';
-import { analyzeRecording, getAllAnalyses } from './gemini';
+import { analyzeRecording, getAllAnalyses, isAutoDeleteEnabled } from './gemini';
 
 const MIN_CLIP_DURATION = 3000;
 const MAX_CLIP_DURATION = 5000;
@@ -138,7 +138,9 @@ export function getRecordings(): RecordingInfo[] {
   return completedRecordings
     .filter((rec) => {
       const a = analyses.get(rec.filename);
-      return !(a && a.severity === 'nie ważny');
+      if (a && a.severity === 'unimportant' && isAutoDeleteEnabled()) return false;
+      const filePath = path.join(RECORDINGS_DIR, rec.filename);
+      return fs.existsSync(filePath);
     })
     .map((rec) => ({
       ...rec,

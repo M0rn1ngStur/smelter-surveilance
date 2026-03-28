@@ -96,7 +96,7 @@ npm run dev       # Vite — https://localhost:5173 (basicSsl for getUserMedia o
   - Clip duration: min **3s**, max **5s**. Stops early if motion drops below threshold after min duration.
   - **10s cooldown** between recordings per camera.
 - After a recording completes, fires off Gemini analysis (`analyzeRecording()`).
-- `getRecordings()` — returns completed recordings with analysis results attached, filtering out those marked `'nie ważny'` (unimportant — Polish legacy filter).
+- `getRecordings()` — returns completed recordings with analysis results attached, filtering out those marked `'unimportant'`.
 - `setRecordingEnabled(bool)` / `setMotionThreshold(value)` — runtime config.
 
 ### `gemini.ts` — AI video analysis (Google Gemini)

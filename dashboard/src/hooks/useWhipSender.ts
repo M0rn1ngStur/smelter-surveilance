@@ -59,7 +59,7 @@ export function useWhipSender() {
 
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Kamera niedostępna — wymagane połączenie HTTPS');
+        throw new Error('Camera cannot be accessed — HTTPS is required');
       }
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       streamRef.current = stream;
