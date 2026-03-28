@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@theme {
+  --color-sentinel-bg: #0B1120;
+  --color-sentinel-card: #111827;
+  --color-sentinel-border: #1E293B;
+}

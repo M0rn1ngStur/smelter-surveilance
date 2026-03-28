@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Podgląd — Smelter Surveillance</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #161127; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 20px; }
+    video { width: 960px; max-width: 95vw; border-radius: 8px; background: #000; }
+    button { padding: 10px 24px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; background: #2196f3; color: #fff; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #status { font-size: 14px; color: #aaa; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <h2>Podgląd kamer</h2>
+  <video id="player" autoplay playsinline></video>
+  <button id="connectBtn">Połącz</button>
+  <div id="status"></div>
+
+  <script>
+    const player = document.getElementById('player');
+    const connectBtn = document.getElementById('connectBtn');
+    const statusEl = document.getElementById('status');
+
+    let pc = null;
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    function waitForIceGathering(pc) {
+      return new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        const check = () => {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', check);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', check);
+        setTimeout(resolve, 5000);
+      });
+    }
+
+    async function connect() {
+      try {
+        connectBtn.disabled = true;
+        setStatus('Pobieram adres WHEP...');
+
+        const urlRes = await fetch('/whep-url');
+        const { whepUrl } = await urlRes.json();
+
+        setStatus('Nawiązuję połączenie WebRTC...');
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        });
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+
+        pc.ontrack = (event) => {
+          player.srcObject = event.streams[0];
+        };
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+            setStatus('Połączenie utracone. Kliknij ponownie, aby połączyć.');
+            connectBtn.disabled = false;
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await waitForIceGathering(pc);
+
+        const whepRes = await fetch(whepUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp,
+        });
+
+        if (!whepRes.ok) throw new Error(`WHEP error: ${whepRes.status}`);
+
+        const answerSdp = await whepRes.text();
+        await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+        setStatus('Połączono — odbieram obraz');
+      } catch (err) {
+        setStatus(`Błąd: ${err.message}`);
+        connectBtn.disabled = false;
+        if (pc) { pc.close(); pc = null; }
+      }
+    }
+
+    connectBtn.addEventListener('click', connect);
+
+    // auto-connect on page load
+    connect();
+  </script>
+</body>
+</html>
