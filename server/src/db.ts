@@ -17,14 +17,6 @@ export function initDb(): void {
       durationMs INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS analyses (
-      filename TEXT PRIMARY KEY,
-      description TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      analyzedAt INTEGER NOT NULL,
-      FOREIGN KEY (filename) REFERENCES recordings(filename)
-    );
-
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -39,7 +31,41 @@ export function initDb(): void {
       endpoint TEXT PRIMARY KEY,
       subscription TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS segments (
+      filename TEXT PRIMARY KEY,
+      inputId TEXT NOT NULL,
+      startTimestamp INTEGER NOT NULL,
+      endTimestamp INTEGER,
+      durationMs INTEGER,
+      hasMotion INTEGER NOT NULL DEFAULT 0
+    );
   `);
+
+  // Recreate analyses table without FK constraint (analyses now reference segments, not recordings)
+  const hasOldFk = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='analyses'`).get() as { sql: string } | undefined;
+  if (hasOldFk && hasOldFk.sql.includes('REFERENCES')) {
+    db.exec(`
+      ALTER TABLE analyses RENAME TO analyses_old;
+      CREATE TABLE analyses (
+        filename TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        analyzedAt INTEGER NOT NULL
+      );
+      INSERT INTO analyses SELECT * FROM analyses_old;
+      DROP TABLE analyses_old;
+    `);
+  } else {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS analyses (
+        filename TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        analyzedAt INTEGER NOT NULL
+      );
+    `);
+  }
 }
 
 // --- Recordings ---
@@ -157,4 +183,51 @@ export function dbDeletePushSubscription(endpoint: string): void {
 export function dbLoadPushSubscriptions(): string[] {
   const rows = db.prepare(loadPushSubsSQL).all() as { subscription: string }[];
   return rows.map((r) => r.subscription);
+}
+
+// --- Segments ---
+
+const insertSegmentSQL = `INSERT OR REPLACE INTO segments (filename, inputId, startTimestamp, hasMotion) VALUES (?, ?, ?, 0)`;
+const updateSegmentEndSQL = `UPDATE segments SET endTimestamp = ?, durationMs = ? WHERE filename = ?`;
+const markSegmentMotionSQL = `UPDATE segments SET hasMotion = 1 WHERE filename = ?`;
+const loadSegmentsSQL = `
+  SELECT s.filename, s.inputId, s.startTimestamp, s.endTimestamp, s.durationMs, s.hasMotion,
+         a.description, a.severity, a.analyzedAt
+  FROM segments s
+  LEFT JOIN analyses a ON s.filename = a.filename
+  ORDER BY s.startTimestamp DESC
+`;
+const deleteSegmentSQL = `DELETE FROM segments WHERE filename = ?`;
+
+export interface DbSegmentRow {
+  filename: string;
+  inputId: string;
+  startTimestamp: number;
+  endTimestamp: number | null;
+  durationMs: number | null;
+  hasMotion: number;
+  description: string | null;
+  severity: string | null;
+  analyzedAt: number | null;
+}
+
+export function dbInsertSegment(seg: { filename: string; inputId: string; startTimestamp: number }): void {
+  db.prepare(insertSegmentSQL).run(seg.filename, seg.inputId, seg.startTimestamp);
+}
+
+export function dbUpdateSegmentEnd(filename: string, endTimestamp: number, durationMs: number): void {
+  db.prepare(updateSegmentEndSQL).run(endTimestamp, durationMs, filename);
+}
+
+export function dbMarkSegmentMotion(filename: string): void {
+  db.prepare(markSegmentMotionSQL).run(filename);
+}
+
+export function dbLoadSegments(): DbSegmentRow[] {
+  return db.prepare(loadSegmentsSQL).all() as DbSegmentRow[];
+}
+
+export function dbDeleteSegment(filename: string): void {
+  db.prepare(deleteAnalysisForRecordingSQL).run(filename);
+  db.prepare(deleteSegmentSQL).run(filename);
 }

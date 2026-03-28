@@ -3,22 +3,23 @@ import fs from 'fs';
 import { InputStream, View } from '@swmansion/smelter';
 import { SmelterInstance } from './smelter';
 import { analyzeRecording, getAllAnalyses, isAutoDeleteEnabled } from './gemini';
-import { dbInsertRecording, dbLoadRecordings, dbGetSetting, dbSetSetting } from './db';
+import {
+  dbInsertSegment,
+  dbUpdateSegmentEnd,
+  dbMarkSegmentMotion,
+  dbLoadSegments,
+  dbDeleteSegment,
+  dbGetSetting,
+  dbSetSetting,
+} from './db';
 
-const MIN_CLIP_DURATION = 3000;
-const MAX_CLIP_DURATION = 5000;
+const DEFAULT_SEGMENT_DURATION_MS = 60_000;
+let segmentDurationMs = DEFAULT_SEGMENT_DURATION_MS;
 let motionThreshold = 0.5;
-const COOLDOWN_MS = 10_000;
+let recordingEnabled = false;
 
 const RECORDING_RESOLUTION = { width: 640, height: 480 };
 const RECORDINGS_DIR = path.join(__dirname, '..', 'recordings');
-
-interface RecordingState {
-  outputId: string;
-  filePath: string;
-  startedAt: number;
-  stopTimer: ReturnType<typeof setTimeout>;
-}
 
 export interface RecordingInfo {
   filename: string;
@@ -32,26 +33,42 @@ export interface RecordingInfo {
   };
 }
 
-const activeRecordings = new Map<string, RecordingState>();
-const lastRecordingEnd = new Map<string, number>();
-const completedRecordings: RecordingInfo[] = [];
-let recordingEnabled = false;
+interface SegmentState {
+  outputId: string;
+  filePath: string;
+  filename: string;
+  inputId: string;
+  startedAt: number;
+  hasMotion: boolean;
+  motionMarkedInDb: boolean;
+  rotationTimer: ReturnType<typeof setTimeout>;
+}
+
+interface CameraPipeline {
+  inputId: string;
+  currentSegment: SegmentState | null;
+  rotating: boolean;
+}
+
+const pipelines = new Map<string, CameraPipeline>();
+const completedSegments: RecordingInfo[] = [];
 
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 
 export function initRecorder(): void {
-  const saved = dbLoadRecordings();
+  const saved = dbLoadSegments();
   for (const row of saved) {
+    if (!row.durationMs) continue; // skip incomplete segments
     const rec: RecordingInfo = {
       filename: row.filename,
       inputId: row.inputId,
-      timestamp: row.timestamp,
+      timestamp: row.startTimestamp,
       durationMs: row.durationMs,
     };
     if (row.description && row.severity && row.analyzedAt) {
       rec.analysis = { description: row.description, severity: row.severity, analyzedAt: row.analyzedAt };
     }
-    completedRecordings.push(rec);
+    completedSegments.push(rec);
   }
 
   const savedEnabled = dbGetSetting('recordingEnabled');
@@ -60,14 +77,17 @@ export function initRecorder(): void {
   const savedThreshold = dbGetSetting('motionThreshold');
   if (savedThreshold !== undefined) motionThreshold = parseFloat(savedThreshold);
 
-  console.log(`[recorder] Loaded ${completedRecordings.length} recordings from database`);
+  const savedDuration = dbGetSetting('segmentDurationMs');
+  if (savedDuration !== undefined) segmentDurationMs = parseInt(savedDuration, 10);
+
+  console.log(`[recorder] Loaded ${completedSegments.length} segments from database (segment duration: ${segmentDurationMs / 1000}s)`);
 }
 
-async function startRecording(inputId: string) {
+async function startNewSegment(inputId: string): Promise<SegmentState> {
   const timestamp = Date.now();
   const filename = `${inputId}_${timestamp}.mp4`;
   const filePath = path.join(RECORDINGS_DIR, filename);
-  const outputId = `rec_${inputId}_${timestamp}`;
+  const outputId = `seg_${inputId}_${timestamp}`;
 
   await SmelterInstance.registerOutput(
     outputId,
@@ -87,82 +107,135 @@ async function startRecording(inputId: string) {
     }
   );
 
-  const stopTimer = setTimeout(() => stopRecording(inputId), MAX_CLIP_DURATION);
+  dbInsertSegment({ filename, inputId, startTimestamp: timestamp });
 
-  activeRecordings.set(inputId, {
+  const rotationTimer = setTimeout(() => rotateSegment(inputId), segmentDurationMs);
+
+  const segment: SegmentState = {
     outputId,
     filePath,
+    filename,
+    inputId,
     startedAt: timestamp,
-    stopTimer,
-  });
+    hasMotion: false,
+    motionMarkedInDb: false,
+    rotationTimer,
+  };
 
-  console.log(`[recorder] Started recording for ${inputId} → ${filename}`);
+  console.log(`[recorder] Started segment ${filename}`);
+  return segment;
 }
 
-async function stopRecording(inputId: string) {
-  const state = activeRecordings.get(inputId);
-  if (!state) return;
-
-  clearTimeout(state.stopTimer);
-  activeRecordings.delete(inputId);
-  lastRecordingEnd.set(inputId, Date.now());
+async function finalizeSegment(segment: SegmentState): Promise<void> {
+  clearTimeout(segment.rotationTimer);
 
   try {
-    await SmelterInstance.unregisterOutput(state.outputId);
+    await SmelterInstance.unregisterOutput(segment.outputId);
   } catch {
     // output may already be gone
   }
 
-  const durationMs = Date.now() - state.startedAt;
-  const filename = path.basename(state.filePath);
+  const durationMs = Date.now() - segment.startedAt;
+  dbUpdateSegmentEnd(segment.filename, Date.now(), durationMs);
 
-  completedRecordings.push({
-    filename,
-    inputId,
-    timestamp: state.startedAt,
+  completedSegments.push({
+    filename: segment.filename,
+    inputId: segment.inputId,
+    timestamp: segment.startedAt,
     durationMs,
   });
 
-  dbInsertRecording({ filename, inputId, timestamp: state.startedAt, durationMs });
+  if (segment.hasMotion) {
+    console.log(`[recorder] Segment ${segment.filename} completed (${durationMs}ms) — has motion, sending to analysis`);
+    analyzeRecording(segment.filename, segment.filePath);
+  } else {
+    console.log(`[recorder] Segment ${segment.filename} completed (${durationMs}ms) — no motion, deleting`);
+    try {
+      fs.unlinkSync(segment.filePath);
+      dbDeleteSegment(segment.filename);
+    } catch {
+      // file may already be gone
+    }
+  }
+}
 
-  console.log(`[recorder] Stopped recording for ${inputId} (${durationMs}ms) → ${filename}`);
+async function rotateSegment(inputId: string): Promise<void> {
+  const pipeline = pipelines.get(inputId);
+  if (!pipeline || pipeline.rotating) return;
 
-  // Fire-and-forget: analyze recording with Gemini (queued sequentially)
-  analyzeRecording(filename, state.filePath);
+  pipeline.rotating = true;
+  const oldSegment = pipeline.currentSegment;
+
+  try {
+    // Start new segment BEFORE stopping old one — zero gap
+    const newSegment = await startNewSegment(inputId);
+    pipeline.currentSegment = newSegment;
+
+    if (oldSegment) {
+      await finalizeSegment(oldSegment);
+    }
+  } catch (err) {
+    console.error(`[recorder] Rotation failed for ${inputId}:`, err);
+  } finally {
+    pipeline.rotating = false;
+  }
+}
+
+export async function startRecordingForCamera(inputId: string): Promise<void> {
+  if (!recordingEnabled) return;
+  if (pipelines.has(inputId)) return;
+
+  const pipeline: CameraPipeline = {
+    inputId,
+    currentSegment: null,
+    rotating: false,
+  };
+  pipelines.set(inputId, pipeline);
+
+  try {
+    const segment = await startNewSegment(inputId);
+    pipeline.currentSegment = segment;
+    console.log(`[recorder] Pipeline started for ${inputId}`);
+  } catch (err) {
+    pipelines.delete(inputId);
+    console.error(`[recorder] Failed to start pipeline for ${inputId}:`, err);
+  }
+}
+
+async function stopPipeline(inputId: string): Promise<void> {
+  const pipeline = pipelines.get(inputId);
+  if (!pipeline) return;
+
+  pipelines.delete(inputId);
+
+  if (pipeline.currentSegment) {
+    await finalizeSegment(pipeline.currentSegment);
+  }
+
+  console.log(`[recorder] Pipeline stopped for ${inputId}`);
+}
+
+export async function stopRecordingForCamera(inputId: string): Promise<void> {
+  await stopPipeline(inputId);
 }
 
 export function handleMotionForRecording(inputId: string, score: number) {
-  const recording = activeRecordings.get(inputId);
+  const pipeline = pipelines.get(inputId);
+  if (!pipeline?.currentSegment) return;
+  if (pipeline.rotating) return;
 
-  if (recording) {
-    const elapsed = Date.now() - recording.startedAt;
-
-    // Motion stopped and min duration reached → stop early
-    if (score <= motionThreshold && elapsed >= MIN_CLIP_DURATION) {
-      stopRecording(inputId);
-      return;
+  if (score > motionThreshold && !pipeline.currentSegment.hasMotion) {
+    pipeline.currentSegment.hasMotion = true;
+    if (!pipeline.currentSegment.motionMarkedInDb) {
+      pipeline.currentSegment.motionMarkedInDb = true;
+      dbMarkSegmentMotion(pipeline.currentSegment.filename);
     }
-
-    // Motion continues → extend up to MAX, but timer already handles max
-    return;
   }
-
-  // Not recording — check if we should start
-  if (!recordingEnabled) return;
-  if (score <= motionThreshold) return;
-
-  // Cooldown check
-  const lastEnd = lastRecordingEnd.get(inputId) ?? 0;
-  if (Date.now() - lastEnd < COOLDOWN_MS) return;
-
-  startRecording(inputId).catch((err) =>
-    console.error(`[recorder] Failed to start recording for ${inputId}:`, err)
-  );
 }
 
 export function getRecordings(): RecordingInfo[] {
   const analyses = getAllAnalyses();
-  return completedRecordings
+  return completedSegments
     .filter((rec) => {
       const a = analyses.get(rec.filename);
       if (a && a.severity === 'unimportant' && isAutoDeleteEnabled()) return false;
@@ -196,8 +269,5 @@ export function setMotionThreshold(value: number): void {
 }
 
 export function cleanupRecordingsForInput(inputId: string) {
-  const recording = activeRecordings.get(inputId);
-  if (recording) {
-    stopRecording(inputId);
-  }
+  stopPipeline(inputId);
 }

@@ -5,7 +5,7 @@ import express, { json, text } from 'express';
 import cors from 'cors';
 import { SmelterInstance } from './smelter';
 import { startMotionDetection, stopMotionDetection, getMotionScores, onMotionScore } from './motion';
-import { getRecordings, isRecordingEnabled, setRecordingEnabled, getMotionThreshold, setMotionThreshold } from './recorder';
+import { getRecordings, isRecordingEnabled, setRecordingEnabled, getMotionThreshold, setMotionThreshold, startRecordingForCamera, stopRecordingForCamera } from './recorder';
 import { isAutoDeleteEnabled, setAutoDelete } from './gemini';
 import { dbSetCameraName, dbLoadCameraNames, dbSavePushSubscription } from './db';
 import { getVapidPublicKey } from './push';
@@ -114,6 +114,12 @@ app.post('/connect', async (req, res) => {
     console.error(`[motion] Failed to start for ${inputId}:`, err)
   );
 
+  if (isRecordingEnabled()) {
+    startRecordingForCamera(inputId).catch((err) =>
+      console.error(`[recorder] Failed to start pipeline for ${inputId}:`, err)
+    );
+  }
+
   res.json({
     inputId,
     whipUrl: `/api/whip/${inputId}`,
@@ -157,6 +163,12 @@ app.post('/connect-video', async (req, res) => {
   startMotionDetection(inputId).catch((err) =>
     console.error(`[motion] Failed to start for ${inputId}:`, err)
   );
+
+  if (isRecordingEnabled()) {
+    startRecordingForCamera(inputId).catch((err) =>
+      console.error(`[recorder] Failed to start pipeline for ${inputId}:`, err)
+    );
+  }
 
   res.json({ inputId });
 });
@@ -242,6 +254,19 @@ app.post('/api/recording-enabled', (req, res) => {
     return;
   }
   setRecordingEnabled(enabled);
+
+  for (const [inputId] of activeInputs) {
+    if (enabled) {
+      startRecordingForCamera(inputId).catch((err) =>
+        console.error(`[recorder] Failed to start pipeline for ${inputId}:`, err)
+      );
+    } else {
+      stopRecordingForCamera(inputId).catch((err) =>
+        console.error(`[recorder] Failed to stop pipeline for ${inputId}:`, err)
+      );
+    }
+  }
+
   res.json({ enabled: isRecordingEnabled() });
 });
 
