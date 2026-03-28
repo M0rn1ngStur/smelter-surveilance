@@ -3,12 +3,14 @@ import { initDb } from './db';
 import { initializeSmelterInstance } from './smelter';
 import { initRecorder } from './recorder';
 import { initGemini } from './gemini';
+import { initPush } from './push';
 import { app } from './routes';
 
 async function run() {
   initDb();
   initRecorder();
   initGemini();
+  initPush();
 
   await initializeSmelterInstance();
 

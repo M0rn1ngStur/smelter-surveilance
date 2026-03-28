@@ -2,6 +2,7 @@ import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 import { dbInsertAnalysis, dbLoadAnalyses, dbGetSetting, dbSetSetting, dbDeleteRecording } from './db';
+import { sendPushToAll } from './push';
 
 const VALID_SEVERITIES = ['funny', 'unimportant', 'moderate', 'serious'] as const;
 
@@ -124,7 +125,9 @@ async function doAnalyze(filename: string, filePath: string): Promise<void> {
         },
       },
       {
-        text: `Analyze this home security camera video. You are turned on most often when owner isn't at home beware of suspicious activities. 
+        text: `Analyze this home security camera video. 
+        You are turned on most often when owner isn't at home beware of suspicious activities.
+        If camera cuts to dark it probably means someone put something over it to prevent vision!
         Return a JSON object with exactly two fields:
           - "description": a brief description in English of what is happening in the recording (1-2 sentences)
           - "severity": exactly one of these values:
@@ -148,6 +151,15 @@ async function doAnalyze(filename: string, filePath: string): Promise<void> {
     dbInsertAnalysis(filename, { description, severity, analyzedAt });
 
     console.log(`[gemini] Analysis complete for ${filename}: severity="${severity}"`);
+
+    // Send push notification for serious events
+    if (severity === 'serious') {
+      sendPushToAll({
+        title: 'ALARM: Suspicious activity!',
+        body: description,
+        tag: filename,
+      }).catch((err) => console.error('[gemini] Push notification failed:', err));
+    }
 
     // Delete unimportant recordings to save space
     if (autoDeleteUnimportant && severity === 'unimportant') {

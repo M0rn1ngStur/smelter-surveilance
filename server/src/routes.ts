@@ -7,7 +7,8 @@ import { SmelterInstance } from './smelter';
 import { startMotionDetection, stopMotionDetection, getMotionScores, onMotionScore } from './motion';
 import { getRecordings, isRecordingEnabled, setRecordingEnabled, getMotionThreshold, setMotionThreshold } from './recorder';
 import { isAutoDeleteEnabled, setAutoDelete } from './gemini';
-import { dbSetCameraName, dbLoadCameraNames } from './db';
+import { dbSetCameraName, dbLoadCameraNames, dbSavePushSubscription } from './db';
+import { getVapidPublicKey } from './push';
 
 export const app: Express = express();
 
@@ -299,6 +300,22 @@ app.get('/api/recordings', (_req, res) => {
 
 // GET /api/recordings/:filename — serve a recorded clip
 app.use('/api/recordings', express.static(path.join(__dirname, '..', 'recordings')));
+
+// GET /api/push/vapid-key — return VAPID public key for push subscription
+app.get('/api/push/vapid-key', (_req, res) => {
+  res.json({ publicKey: getVapidPublicKey() });
+});
+
+// POST /api/push/subscribe — save a push subscription
+app.post('/api/push/subscribe', (req, res) => {
+  const subscription = req.body;
+  if (!subscription?.endpoint) {
+    res.status(400).json({ error: 'Invalid subscription' });
+    return;
+  }
+  dbSavePushSubscription(subscription);
+  res.json({ ok: true });
+});
 
 // SDP proxy: WHIP (browser → Smelter)
 app.post('/api/whip/:inputId', async (req, res) => {

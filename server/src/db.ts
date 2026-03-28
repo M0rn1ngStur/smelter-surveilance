@@ -34,6 +34,11 @@ export function initDb(): void {
       inputId TEXT PRIMARY KEY,
       name TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      subscription TEXT NOT NULL
+    );
   `);
 }
 
@@ -133,4 +138,23 @@ export function dbLoadCameraNames(): Map<string, string> {
     map.set(row.inputId, row.name);
   }
   return map;
+}
+
+// --- Push Subscriptions ---
+
+const insertPushSubSQL = `INSERT OR REPLACE INTO push_subscriptions (endpoint, subscription) VALUES (?, ?)`;
+const deletePushSubSQL = `DELETE FROM push_subscriptions WHERE endpoint = ?`;
+const loadPushSubsSQL = `SELECT subscription FROM push_subscriptions`;
+
+export function dbSavePushSubscription(subscription: { endpoint: string }): void {
+  db.prepare(insertPushSubSQL).run(subscription.endpoint, JSON.stringify(subscription));
+}
+
+export function dbDeletePushSubscription(endpoint: string): void {
+  db.prepare(deletePushSubSQL).run(endpoint);
+}
+
+export function dbLoadPushSubscriptions(): string[] {
+  const rows = db.prepare(loadPushSubsSQL).all() as { subscription: string }[];
+  return rows.map((r) => r.subscription);
 }

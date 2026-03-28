@@ -136,6 +136,21 @@ export async function renameInput(inputId: string, name: string): Promise<void> 
   });
 }
 
+export async function getVapidPublicKey(): Promise<string> {
+  const res = await fetch('/api/push/vapid-key');
+  if (!res.ok) throw new Error(`VAPID key fetch failed: ${res.status}`);
+  const { publicKey } = await res.json();
+  return publicKey;
+}
+
+export async function subscribePush(subscription: PushSubscription): Promise<void> {
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+}
+
 export async function sendSdp(
   url: string,
   sdp: string,
