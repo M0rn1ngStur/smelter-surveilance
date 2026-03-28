@@ -2,3 +2,6 @@ node_modules
 dist
 recordings
 .env
+*.db
+*.db-shm
+*.db-wal
