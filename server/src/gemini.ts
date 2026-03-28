@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAIFileManager } from '@google/generative-ai/server';
+import { dbInsertAnalysis, dbLoadAnalyses, dbGetSetting, dbSetSetting, dbDeleteRecording } from './db';
 
 const VALID_SEVERITIES = ['funny', 'unimportant', 'moderate', 'serious'] as const;
 
@@ -20,7 +21,18 @@ export function isAutoDeleteEnabled(): boolean {
 
 export function setAutoDelete(enabled: boolean): void {
   autoDeleteUnimportant = enabled;
+  dbSetSetting('autoDeleteUnimportant', String(enabled));
   console.log(`[gemini] Auto-delete unimportant recordings: ${enabled}`);
+}
+
+export function initGemini(): void {
+  const saved = dbLoadAnalyses();
+  for (const [k, v] of saved) analysisResults.set(k, v);
+
+  const savedAutoDelete = dbGetSetting('autoDeleteUnimportant');
+  if (savedAutoDelete !== undefined) autoDeleteUnimportant = savedAutoDelete === 'true';
+
+  console.log(`[gemini] Loaded ${saved.size} analyses from database`);
 }
 
 // Simple sequential queue to avoid hitting Gemini rate limits
@@ -131,11 +143,9 @@ async function doAnalyze(filename: string, filePath: string): Promise<void> {
     const responseText = result.response.text();
     const { description, severity } = parseResponse(responseText);
 
-    analysisResults.set(filename, {
-      description,
-      severity,
-      analyzedAt: Date.now(),
-    });
+    const analyzedAt = Date.now();
+    analysisResults.set(filename, { description, severity, analyzedAt });
+    dbInsertAnalysis(filename, { description, severity, analyzedAt });
 
     console.log(`[gemini] Analysis complete for ${filename}: severity="${severity}"`);
 
@@ -143,6 +153,7 @@ async function doAnalyze(filename: string, filePath: string): Promise<void> {
     if (autoDeleteUnimportant && severity === 'unimportant') {
       try {
         fs.unlinkSync(filePath);
+        dbDeleteRecording(filename);
         console.log(`[gemini] Deleted unimportant recording: ${filename}`);
       } catch {
         // file may already be gone

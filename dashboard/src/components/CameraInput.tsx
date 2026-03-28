@@ -4,6 +4,8 @@ import { StatusBadge } from './StatusBadge';
 import { EditableName } from './EditableName';
 
 interface CameraInputProps {
+  clientId: string;
+  slotIndex: number;
   name: string;
   onRename: (name: string) => void;
   onConnected: (inputId: string) => void;
@@ -12,8 +14,8 @@ interface CameraInputProps {
   motionScore?: number;
 }
 
-export function CameraInput({ name, onRename, onConnected, onDisconnected, onRegisterDisconnect, motionScore }: CameraInputProps) {
-  const { previewRef, connectionState, error, inputId, connect, disconnect } = useWhipSender();
+export function CameraInput({ clientId, slotIndex, name, onRename, onConnected, onDisconnected, onRegisterDisconnect, motionScore }: CameraInputProps) {
+  const { previewRef, connectionState, error, inputId, connect, disconnect } = useWhipSender(clientId, slotIndex);
   const prevStateRef = useRef(connectionState);
 
   useEffect(() => {

@@ -8,6 +8,17 @@ import type { InputInfo } from '../types';
 const MAX_CAMERAS = 4;
 let nextSlotId = 0;
 
+function getClientId(): string {
+  let id = localStorage.getItem('smelter-client-id');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('smelter-client-id', id);
+  }
+  return id;
+}
+
+const clientId = getClientId();
+
 interface CameraInputListProps {
   onCamerasChanged: () => void;
   motionScores: Record<string, number>;
@@ -17,15 +28,36 @@ interface CameraInputListProps {
 export function CameraInputList({ onCamerasChanged, motionScores, connectedInputs }: CameraInputListProps) {
   const [slots, setSlots] = useState<string[]>([]);
   const [slotInputIds, setSlotInputIds] = useState<Record<string, string>>({});
+  const [slotIndices, setSlotIndices] = useState<Record<string, number>>({});
+  const nextSlotIndexRef = useRef(0);
   const disconnectHandlers = useRef<Record<string, () => void>>({});
   const confirmedByServer = useRef<Set<string>>(new Set());
+  const didAutoRestore = useRef(false);
 
   const addCamera = useCallback(() => {
     setSlots((prev) => {
       if (prev.length >= MAX_CAMERAS) return prev;
-      return [...prev, `slot_${nextSlotId++}`];
+      const slotId = `slot_${nextSlotId++}`;
+      const idx = nextSlotIndexRef.current++;
+      setSlotIndices((si) => ({ ...si, [slotId]: idx }));
+      return [...prev, slotId];
     });
   }, []);
+
+  // Auto-restore camera slots from previous session
+  useEffect(() => {
+    if (didAutoRestore.current) return;
+    didAutoRestore.current = true;
+    const saved = parseInt(localStorage.getItem('smelter-slot-count') ?? '0', 10);
+    for (let i = 0; i < Math.min(saved, MAX_CAMERAS); i++) {
+      addCamera();
+    }
+  }, [addCamera]);
+
+  // Persist slot count
+  useEffect(() => {
+    localStorage.setItem('smelter-slot-count', String(slots.length));
+  }, [slots.length]);
 
   const handleAddServerVideo = useCallback(async (filename: string) => {
     try {
@@ -136,6 +168,8 @@ export function CameraInputList({ onCamerasChanged, motionScores, connectedInput
           return (
             <CameraInput
               key={slotId}
+              clientId={clientId}
+              slotIndex={slotIndices[slotId] ?? 0}
               name={serverInfo?.name ?? ''}
               onRename={(name) => inputId && handleRename(inputId, name)}
               onConnected={(id) => handleConnected(slotId, id)}

@@ -7,6 +7,7 @@ import { SmelterInstance } from './smelter';
 import { startMotionDetection, stopMotionDetection, getMotionScores, onMotionScore } from './motion';
 import { getRecordings, isRecordingEnabled, setRecordingEnabled, getMotionThreshold, setMotionThreshold } from './recorder';
 import { isAutoDeleteEnabled, setAutoDelete } from './gemini';
+import { dbSetCameraName, dbLoadCameraNames } from './db';
 
 export const app: Express = express();
 
@@ -20,14 +21,22 @@ interface ActiveInput {
   lastSeenAt: number;
   source: { type: 'webcam' } | { type: 'video'; filename: string };
   name?: string;
+  clientKey?: string; // "clientId:slotIndex" for webcams
 }
 
 const activeInputs = new Map<string, ActiveInput>();
+
+// Remembers camera names across reconnects (survives disconnect, lives as long as server)
+const clientNameCache = new Map<string, string>();
 
 const STALE_INPUT_TIMEOUT_MS = 10_000;
 const STALE_CHECK_INTERVAL_MS = 5_000;
 
 async function cleanupInput(inputId: string) {
+  const info = activeInputs.get(inputId);
+  if (info?.clientKey && info.name) {
+    clientNameCache.set(info.clientKey, info.name);
+  }
   await stopMotionDetection(inputId);
   try {
     await SmelterInstance.unregisterInput(inputId);
@@ -60,7 +69,25 @@ app.use(text({ type: 'application/sdp' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // POST /connect — register a WHIP server input for a new webcam
-app.post('/connect', async (_req, res) => {
+app.post('/connect', async (req, res) => {
+  const { clientId, slotIndex } = req.body ?? {};
+  const clientKey = clientId && slotIndex != null ? `${clientId}:${slotIndex}` : undefined;
+
+  // If this client+slot already has an active input, clean it up first
+  if (clientKey) {
+    for (const [oldId, info] of activeInputs) {
+      if (info.clientKey === clientKey) {
+        // Save name before cleanup
+        if (info.name) clientNameCache.set(clientKey, info.name);
+        await stopMotionDetection(oldId);
+        try { await SmelterInstance.unregisterInput(oldId); } catch { /* may be gone */ }
+        activeInputs.delete(oldId);
+        console.log(`[connect] Cleaned up old input ${oldId} for client ${clientKey}`);
+        break;
+      }
+    }
+  }
+
   const inputId = `webcam_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const result = await SmelterInstance.registerInput(inputId, {
@@ -70,7 +97,17 @@ app.post('/connect', async (_req, res) => {
     },
   });
 
-  activeInputs.set(inputId, { inputId, connectedAt: Date.now(), lastSeenAt: Date.now(), source: { type: 'webcam' } });
+  // Restore name from cache if reconnecting
+  const restoredName = clientKey ? clientNameCache.get(clientKey) : undefined;
+
+  activeInputs.set(inputId, {
+    inputId,
+    connectedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    source: { type: 'webcam' },
+    clientKey,
+    ...(restoredName ? { name: restoredName } : {}),
+  });
 
   startMotionDetection(inputId).catch((err) =>
     console.error(`[motion] Failed to start for ${inputId}:`, err)
@@ -105,11 +142,15 @@ app.post('/connect-video', async (req, res) => {
     loop: true,
   });
 
+  const savedNames = dbLoadCameraNames();
+  const savedName = savedNames.get(filename);
+
   activeInputs.set(inputId, {
     inputId,
     connectedAt: Date.now(),
     lastSeenAt: Date.now(),
     source: { type: 'video', filename },
+    ...(savedName ? { name: savedName } : {}),
   });
 
   startMotionDetection(inputId).catch((err) =>
@@ -123,6 +164,11 @@ app.post('/connect-video', async (req, res) => {
 app.post('/disconnect', async (req, res) => {
   const { inputId } = req.body;
   if (inputId) {
+    const info = activeInputs.get(inputId);
+    // Save name to cache so it survives reconnect
+    if (info?.clientKey && info.name) {
+      clientNameCache.set(info.clientKey, info.name);
+    }
     await stopMotionDetection(inputId);
     try {
       await SmelterInstance.unregisterInput(inputId);
@@ -154,6 +200,21 @@ app.post('/api/inputs/:inputId/name', (req, res) => {
   }
   const { name } = req.body;
   info.name = typeof name === 'string' ? name : undefined;
+
+  // Persist name for video inputs (they have a stable filename as key)
+  if (info.source.type === 'video') {
+    if (info.name) {
+      dbSetCameraName(info.source.filename, info.name);
+    } else {
+      dbSetCameraName(info.source.filename, '');
+    }
+  }
+
+  // Cache name for webcam reconnects
+  if (info.clientKey && info.name) {
+    clientNameCache.set(info.clientKey, info.name);
+  }
+
   res.json({ inputId: info.inputId, name: info.name });
 });
 

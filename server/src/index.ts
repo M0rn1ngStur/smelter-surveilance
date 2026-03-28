@@ -1,8 +1,15 @@
 import 'dotenv/config';
+import { initDb } from './db';
 import { initializeSmelterInstance } from './smelter';
+import { initRecorder } from './recorder';
+import { initGemini } from './gemini';
 import { app } from './routes';
 
 async function run() {
+  initDb();
+  initRecorder();
+  initGemini();
+
   await initializeSmelterInstance();
 
   app.listen(3000, () => {

@@ -1,11 +1,15 @@
 import type { InputInfo, RecordingInfo } from '../types';
 
-export async function registerInput(): Promise<{
+export async function registerInput(clientId: string, slotIndex: number): Promise<{
   inputId: string;
   whipUrl: string;
   bearerToken: string;
 }> {
-  const res = await fetch('/connect', { method: 'POST' });
+  const res = await fetch('/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, slotIndex }),
+  });
   if (!res.ok) throw new Error(`Register failed: ${res.status}`);
   return res.json();
 }

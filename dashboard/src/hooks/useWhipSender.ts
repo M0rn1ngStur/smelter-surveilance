@@ -3,7 +3,7 @@ import type { ConnectionState } from '../types';
 import { registerInput, unregisterInput, sendBeaconDisconnect, sendSdp } from '../api/client';
 import { ICE_SERVERS, waitForIceGathering, preferBaselineH264 } from '../lib/webrtc';
 
-export function useWhipSender() {
+export function useWhipSender(clientId: string, slotIndex: number) {
   const previewRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -67,7 +67,7 @@ export function useWhipSender() {
         previewRef.current.srcObject = stream;
       }
 
-      const { inputId: id, whipUrl, bearerToken } = await registerInput();
+      const { inputId: id, whipUrl, bearerToken } = await registerInput(clientId, slotIndex);
       inputIdRef.current = id;
       setInputId(id);
 

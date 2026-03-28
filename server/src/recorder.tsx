@@ -3,6 +3,7 @@ import fs from 'fs';
 import { InputStream, View } from '@swmansion/smelter';
 import { SmelterInstance } from './smelter';
 import { analyzeRecording, getAllAnalyses, isAutoDeleteEnabled } from './gemini';
+import { dbInsertRecording, dbLoadRecordings, dbGetSetting, dbSetSetting } from './db';
 
 const MIN_CLIP_DURATION = 3000;
 const MAX_CLIP_DURATION = 5000;
@@ -37,6 +38,30 @@ const completedRecordings: RecordingInfo[] = [];
 let recordingEnabled = false;
 
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+
+export function initRecorder(): void {
+  const saved = dbLoadRecordings();
+  for (const row of saved) {
+    const rec: RecordingInfo = {
+      filename: row.filename,
+      inputId: row.inputId,
+      timestamp: row.timestamp,
+      durationMs: row.durationMs,
+    };
+    if (row.description && row.severity && row.analyzedAt) {
+      rec.analysis = { description: row.description, severity: row.severity, analyzedAt: row.analyzedAt };
+    }
+    completedRecordings.push(rec);
+  }
+
+  const savedEnabled = dbGetSetting('recordingEnabled');
+  if (savedEnabled !== undefined) recordingEnabled = savedEnabled === 'true';
+
+  const savedThreshold = dbGetSetting('motionThreshold');
+  if (savedThreshold !== undefined) motionThreshold = parseFloat(savedThreshold);
+
+  console.log(`[recorder] Loaded ${completedRecordings.length} recordings from database`);
+}
 
 async function startRecording(inputId: string) {
   const timestamp = Date.now();
@@ -98,6 +123,8 @@ async function stopRecording(inputId: string) {
     durationMs,
   });
 
+  dbInsertRecording({ filename, inputId, timestamp: state.startedAt, durationMs });
+
   console.log(`[recorder] Stopped recording for ${inputId} (${durationMs}ms) → ${filename}`);
 
   // Fire-and-forget: analyze recording with Gemini (queued sequentially)
@@ -154,6 +181,7 @@ export function isRecordingEnabled(): boolean {
 
 export function setRecordingEnabled(enabled: boolean): void {
   recordingEnabled = enabled;
+  dbSetSetting('recordingEnabled', String(enabled));
   console.log(`[recorder] Recording ${enabled ? 'enabled' : 'disabled'}`);
 }
 
@@ -163,6 +191,7 @@ export function getMotionThreshold(): number {
 
 export function setMotionThreshold(value: number): void {
   motionThreshold = Math.max(0, Math.min(1, value));
+  dbSetSetting('motionThreshold', String(motionThreshold));
   console.log(`[recorder] Motion threshold set to ${motionThreshold}`);
 }
 

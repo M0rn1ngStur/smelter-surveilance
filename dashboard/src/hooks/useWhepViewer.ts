@@ -19,7 +19,13 @@ export function useWhepViewer() {
     }
   }, []);
 
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const connect = useCallback(async () => {
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     cleanup();
     setError(null);
     setConnectionState('connecting');
@@ -39,6 +45,7 @@ export function useWhepViewer() {
       };
 
       pc.onconnectionstatechange = () => {
+        if (pcRef.current !== pc) return;
         switch (pc.connectionState) {
           case 'connected':
             setConnectionState('connected');
@@ -46,6 +53,8 @@ export function useWhepViewer() {
           case 'failed':
           case 'disconnected':
             setConnectionState('failed');
+            // Auto-retry after 2s
+            retryTimer.current = setTimeout(() => connect(), 2000);
             break;
         }
       };
@@ -54,7 +63,13 @@ export function useWhepViewer() {
       await pc.setLocalDescription(offer);
       await waitForIceGathering(pc);
 
+      // Guard: if connect() was called again while we were waiting, abort
+      if (pcRef.current !== pc) return;
+
       const answerSdp = await sendSdp(whepUrl, pc.localDescription!.sdp);
+
+      if (pcRef.current !== pc) return;
+
       await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 
       setConnectionState('connected');
@@ -62,11 +77,16 @@ export function useWhepViewer() {
       setError(err instanceof Error ? err.message : String(err));
       setConnectionState('failed');
       cleanup();
+      // Auto-retry after 2s
+      retryTimer.current = setTimeout(() => connect(), 2000);
     }
   }, [cleanup]);
 
   useEffect(() => {
-    return cleanup;
+    return () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      cleanup();
+    };
   }, [cleanup]);
 
   return { videoRef, connectionState, error, connect };
