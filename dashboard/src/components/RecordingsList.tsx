@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
 import { getRecordings } from '../api/client';
+import { checkNewSeriousRecordings } from '../lib/notifications';
 import type { RecordingInfo } from '../types';
 
 function formatTimestamp(ts: number): string {
   const d = new Date(ts);
-  return d.toLocaleString('pl-PL', {
+  return d.toLocaleString('en-US', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -20,9 +21,9 @@ function formatDuration(ms: number): string {
 
 function severityColor(severity: string): string {
   switch (severity) {
-    case 'śmieszny': return 'bg-yellow-500/20 text-yellow-300';
-    case 'średnio ważny': return 'bg-orange-500/20 text-orange-300';
-    case 'poważny': return 'bg-red-500/20 text-red-300';
+    case 'funny': return 'bg-yellow-500/20 text-yellow-300';
+    case 'moderate': return 'bg-orange-500/20 text-orange-300';
+    case 'serious': return 'bg-red-500/20 text-red-300';
     default: return 'bg-slate-500/20 text-slate-400';
   }
 }
@@ -52,7 +53,7 @@ function RecordingCard({ recording }: { recording: RecordingInfo }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-white">
-              Kamera {recording.inputId.slice(-6)}
+              Camera {recording.inputId.slice(-6)}
             </span>
             <span className="shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300">
               {formatDuration(recording.durationMs)}
@@ -63,7 +64,7 @@ function RecordingCard({ recording }: { recording: RecordingInfo }) {
               </span>
             ) : (
               <span className="shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-500 animate-pulse">
-                Analizowanie...
+                Analyzing...
               </span>
             )}
           </div>
@@ -102,7 +103,7 @@ function RecordingCard({ recording }: { recording: RecordingInfo }) {
               <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
               <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
             </svg>
-            Pobierz
+            Download
           </a>
         </div>
       )}
@@ -120,7 +121,10 @@ export function RecordingsList() {
     async function poll() {
       try {
         const data = await getRecordings();
-        if (active) setRecordings(data);
+        if (active) {
+          setRecordings(data);
+          checkNewSeriousRecordings(data);
+        }
       } catch {
         // silent
       } finally {
@@ -139,28 +143,28 @@ export function RecordingsList() {
   const sorted = [...recordings].sort((a, b) => b.timestamp - a.timestamp);
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+    <main>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-bold tracking-wide text-white">NAGRANIA</h2>
-        <span className="text-sm text-slate-400">{recordings.length} klip(y)</span>
+        <h2 className="text-xl font-bold tracking-wide text-white">RECORDINGS</h2>
+        <span className="text-sm text-slate-400">{recordings.length} clip(s)</span>
       </div>
 
       {loading ? (
         <div className="rounded-xl border border-dashed border-sentinel-border p-12 text-center text-sm text-slate-500">
-          Wczytywanie...
+          Loading...
         </div>
       ) : sorted.length === 0 ? (
         <div className="rounded-xl border border-dashed border-sentinel-border p-12 text-center">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="mx-auto mb-3 h-10 w-10 text-slate-600">
             <path d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z" />
           </svg>
-          <p className="text-sm text-slate-500">Brak nagranych klipow</p>
+          <p className="text-sm text-slate-500">No recorded clips</p>
           <p className="mt-1 text-xs text-slate-600">
-            Klipy pojawiaja sie automatycznie po wykryciu ruchu
+            Clips appear automatically when motion is detected
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
           {sorted.map((rec) => (
             <RecordingCard key={rec.filename} recording={rec} />
           ))}

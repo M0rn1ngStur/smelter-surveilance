@@ -1,11 +1,11 @@
 import type { ConnectionState } from '../types';
 
 const stateConfig: Record<ConnectionState, { color: string; label: string }> = {
-  idle: { color: 'bg-slate-500', label: 'Oczekiwanie' },
-  connecting: { color: 'bg-amber-500', label: 'Łączenie...' },
-  connected: { color: 'bg-cyan-500', label: 'Połączono' },
-  failed: { color: 'bg-red-500', label: 'Błąd' },
-  disconnected: { color: 'bg-slate-500', label: 'Rozłączono' },
+  idle: { color: 'bg-slate-500', label: 'Idle' },
+  connecting: { color: 'bg-amber-500', label: 'Connecting...' },
+  connected: { color: 'bg-cyan-500', label: 'Connected' },
+  failed: { color: 'bg-red-500', label: 'Error' },
+  disconnected: { color: 'bg-slate-500', label: 'Disconnected' },
 };
 
 export function StatusBadge({ state }: { state: ConnectionState }) {

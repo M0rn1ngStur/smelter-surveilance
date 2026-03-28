@@ -1,15 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { useWhipSender } from '../hooks/useWhipSender';
 import { StatusBadge } from './StatusBadge';
+import { EditableName } from './EditableName';
 
 interface CameraInputProps {
+  name: string;
+  onRename: (name: string) => void;
   onConnected: (inputId: string) => void;
   onDisconnected: () => void;
   onRegisterDisconnect: (handler: () => void) => void;
   motionScore?: number;
 }
 
-export function CameraInput({ onConnected, onDisconnected, onRegisterDisconnect, motionScore }: CameraInputProps) {
+export function CameraInput({ name, onRename, onConnected, onDisconnected, onRegisterDisconnect, motionScore }: CameraInputProps) {
   const { previewRef, connectionState, error, inputId, connect, disconnect } = useWhipSender();
   const prevStateRef = useRef(connectionState);
 
@@ -41,7 +44,7 @@ export function CameraInput({ onConnected, onDisconnected, onRegisterDisconnect,
   };
 
   return (
-    <div className="w-full overflow-hidden rounded-xl border border-sentinel-border bg-sentinel-card md:w-72 md:flex-shrink-0">
+    <div className="w-full overflow-hidden rounded-xl border border-sentinel-border bg-sentinel-card">
       <div className="relative">
         <video
           ref={previewRef}
@@ -60,14 +63,16 @@ export function CameraInput({ onConnected, onDisconnected, onRegisterDisconnect,
         )}
       </div>
       <div className="flex items-center justify-between border-t border-sentinel-border p-3">
-        <span className="truncate text-sm text-slate-300">
-          Kamera {inputId ? inputId.slice(-6) : '...'}
-        </span>
+        <EditableName
+          name={name}
+          placeholder={`Camera ${inputId ? inputId.slice(-6) : '...'}`}
+          onRename={onRename}
+        />
         <button
           onClick={handleDisconnect}
           className="rounded border border-red-400/30 px-2.5 py-1 text-xs text-red-400 transition hover:bg-red-400/10"
         >
-          Rozłącz
+          Disconnect
         </button>
       </div>
       {error && <p className="px-3 pb-2 text-xs text-red-400">{error}</p>}

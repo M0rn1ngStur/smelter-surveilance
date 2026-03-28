@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import type { Express } from 'express';
 import express, { json, text } from 'express';
 import cors from 'cors';
@@ -11,8 +12,17 @@ export const app: Express = express();
 
 const SMELTER_PORT = process.env.SMELTER_WHIP_WHEP_SERVER_PORT ?? '9000';
 const SMELTER_URL = `http://127.0.0.1:${SMELTER_PORT}`;
+const LOCAL_VIDEOS_DIR = path.join(__dirname, '..', 'local_videos');
 
-const activeInputs = new Map<string, { inputId: string; connectedAt: number; lastSeenAt: number }>();
+interface ActiveInput {
+  inputId: string;
+  connectedAt: number;
+  lastSeenAt: number;
+  source: { type: 'webcam' } | { type: 'video'; filename: string };
+  name?: string;
+}
+
+const activeInputs = new Map<string, ActiveInput>();
 
 const STALE_INPUT_TIMEOUT_MS = 10_000;
 const STALE_CHECK_INTERVAL_MS = 5_000;
@@ -36,6 +46,8 @@ onMotionScore((inputId) => {
 setInterval(() => {
   const now = Date.now();
   for (const [inputId, info] of activeInputs) {
+    // Don't clean up server-side video inputs — only webcams go stale
+    if (info.source.type === 'video') continue;
     if (now - info.lastSeenAt > STALE_INPUT_TIMEOUT_MS) {
       cleanupInput(inputId);
     }
@@ -58,7 +70,7 @@ app.post('/connect', async (_req, res) => {
     },
   });
 
-  activeInputs.set(inputId, { inputId, connectedAt: Date.now(), lastSeenAt: Date.now() });
+  activeInputs.set(inputId, { inputId, connectedAt: Date.now(), lastSeenAt: Date.now(), source: { type: 'webcam' } });
 
   startMotionDetection(inputId).catch((err) =>
     console.error(`[motion] Failed to start for ${inputId}:`, err)
@@ -69,6 +81,42 @@ app.post('/connect', async (_req, res) => {
     whipUrl: `/api/whip/${inputId}`,
     bearerToken: result.bearerToken,
   });
+});
+
+// POST /connect-video — register a local video file as a Smelter input
+app.post('/connect-video', async (req, res) => {
+  const { filename } = req.body;
+  if (!filename || typeof filename !== 'string') {
+    res.status(400).json({ error: 'filename is required' });
+    return;
+  }
+
+  const filePath = path.join(LOCAL_VIDEOS_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'Video file not found' });
+    return;
+  }
+
+  const inputId = `video_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  await SmelterInstance.registerInput(inputId, {
+    type: 'mp4',
+    serverPath: filePath,
+    loop: true,
+  });
+
+  activeInputs.set(inputId, {
+    inputId,
+    connectedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    source: { type: 'video', filename },
+  });
+
+  startMotionDetection(inputId).catch((err) =>
+    console.error(`[motion] Failed to start for ${inputId}:`, err)
+  );
+
+  res.json({ inputId });
 });
 
 // POST /disconnect — unregister a webcam input
@@ -88,7 +136,25 @@ app.post('/disconnect', async (req, res) => {
 
 // GET /api/inputs — list active inputs
 app.get('/api/inputs', (_req, res) => {
-  res.json({ inputs: Array.from(activeInputs.values()) });
+  const inputs = Array.from(activeInputs.values()).map(({ inputId, connectedAt, source, name }) => ({
+    inputId,
+    connectedAt,
+    source,
+    name,
+  }));
+  res.json({ inputs });
+});
+
+// POST /api/inputs/:inputId/name — rename an input
+app.post('/api/inputs/:inputId/name', (req, res) => {
+  const info = activeInputs.get(req.params.inputId);
+  if (!info) {
+    res.status(404).json({ error: 'Input not found' });
+    return;
+  }
+  const { name } = req.body;
+  info.name = typeof name === 'string' ? name : undefined;
+  res.json({ inputId: info.inputId, name: info.name });
 });
 
 // GET /api/motion — return motion detection scores for all inputs
@@ -148,6 +214,22 @@ app.post('/api/auto-delete', (req, res) => {
   setAutoDelete(enabled);
   res.json({ enabled: isAutoDeleteEnabled() });
 });
+
+// GET /api/local-videos — list video files available on the server
+app.get('/api/local-videos', (_req, res) => {
+  try {
+    const files = fs.readdirSync(LOCAL_VIDEOS_DIR).filter((f) => {
+      const ext = path.extname(f).toLowerCase();
+      return ['.mp4', '.webm', '.mkv', '.avi', '.mov'].includes(ext);
+    });
+    res.json({ videos: files });
+  } catch {
+    res.json({ videos: [] });
+  }
+});
+
+// Serve local video files
+app.use('/api/local-videos', express.static(LOCAL_VIDEOS_DIR));
 
 // GET /api/recordings — list recorded motion clips
 app.get('/api/recordings', (_req, res) => {

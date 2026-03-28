@@ -6,8 +6,7 @@ async function run() {
   await initializeSmelterInstance();
 
   app.listen(3000, () => {
-    console.log('Sender:  http://localhost:3000/sender.html');
-    console.log('Viewer:  http://localhost:3000/viewer.html');
+    console.log('Server listening on http://localhost:3000');
   });
 }
 

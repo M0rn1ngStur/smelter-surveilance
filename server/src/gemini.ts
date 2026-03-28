@@ -2,7 +2,7 @@ import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAIFileManager } from '@google/generative-ai/server';
 
-const VALID_SEVERITIES = ['śmieszny', 'nie ważny', 'średnio ważny', 'poważny'] as const;
+const VALID_SEVERITIES = ['funny', 'unimportant', 'moderate', 'serious'] as const;
 
 export interface AnalysisResult {
   description: string;
@@ -43,8 +43,8 @@ function parseResponse(text: string): { description: string; severity: string } 
   const cleaned = text.replace(/```json?\s*/g, '').replace(/```\s*/g, '').trim();
   const parsed = JSON.parse(cleaned);
 
-  const description = typeof parsed.description === 'string' ? parsed.description : 'Brak opisu';
-  const severity = VALID_SEVERITIES.includes(parsed.severity) ? parsed.severity : 'średnio ważny';
+  const description = typeof parsed.description === 'string' ? parsed.description : 'No description';
+  const severity = VALID_SEVERITIES.includes(parsed.severity) ? parsed.severity : 'moderate';
 
   return { description, severity };
 }
@@ -112,15 +112,16 @@ async function doAnalyze(filename: string, filePath: string): Promise<void> {
         },
       },
       {
-        text: `Przeanalizuj ten filmik z kamery monitoringu domowego. Zwróć obiekt JSON z dokładnie dwoma polami:
-- "description": krótki opis po polsku co się dzieje na nagraniu (1-2 zdania)
-- "severity": dokładnie jedna z tych wartości:
-  - "śmieszny" - zabawna sytuacja ze zwierzakiem (np. kot robi coś śmiesznego)
-  - "nie ważny" - zwierzak przechodzi, nic się nie dzieje
-  - "średnio ważny" - zwierzak coś zniszczył (zbił wazon, rozdarł poduszkę itp.)
-  - "poważny" - wykryto intruza w domu, nieznana osoba
+        text: `Analyze this home security camera video. You are turned on most often when owner isn't at home beware of suspicious activities. 
+        Return a JSON object with exactly two fields:
+          - "description": a brief description in English of what is happening in the recording (1-2 sentences)
+          - "severity": exactly one of these values:
+            - "funny" - amusing situation with a pet (e.g., cat doing something funny)
+            - "unimportant" - pet walks by, nothing happens
+            - "moderate" - pet destroyed something (knocked over a vase, tore a pillow, etc.)
+            - "serious" - intruder detected in the house, unknown person
 
-Zwróć TYLKO poprawny JSON, bez markdown, bez dodatkowego tekstu.`,
+        Return ONLY valid JSON, no markdown, no additional text.`,
       },
     ]);
 
@@ -139,7 +140,7 @@ Zwróć TYLKO poprawny JSON, bez markdown, bez dodatkowego tekstu.`,
     console.log(`[gemini] Analysis complete for ${filename}: severity="${severity}"`);
 
     // Delete unimportant recordings to save space
-    if (autoDeleteUnimportant && severity === 'nie ważny') {
+    if (autoDeleteUnimportant && severity === 'unimportant') {
       try {
         fs.unlinkSync(filePath);
         console.log(`[gemini] Deleted unimportant recording: ${filename}`);

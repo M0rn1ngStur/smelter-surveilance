@@ -7,7 +7,7 @@ import { updateFocus, handleDisconnect } from './focusStore';
 import { handleMotionForRecording, cleanupRecordingsForInput } from './recorder';
 
 const BASE_RTP_PORT = 10_000;
-const MOTION_RESOLUTION = { width: 160, height: 120 };
+const MOTION_RESOLUTION = { width: 320, height: 240 };
 
 let nextPort = BASE_RTP_PORT;
 const motionOutputs = new Map<string, { port: number; outputId: string }>();

@@ -9,7 +9,7 @@ interface ConnectedCamerasListProps {
 
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function MotionBar({ score }: { score: number }) {
@@ -54,14 +54,14 @@ export function ConnectedCamerasList({ inputs, motionScores }: ConnectedCamerasL
     <div className="mt-6">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">
-          Podłączone kamery{' '}
+          Connected Cameras{' '}
           <span className="text-sm font-normal text-slate-400">({inputs.length})</span>
         </h2>
       </div>
 
       {inputs.length === 0 ? (
         <div className="rounded-xl border border-dashed border-sentinel-border p-8 text-center text-sm text-slate-500">
-          Brak podłączonych kamer
+          No cameras connected
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -82,18 +82,18 @@ export function ConnectedCamerasList({ inputs, motionScores }: ConnectedCamerasL
                   <div className="flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-cyan-500" />
                     <span className="text-sm font-medium text-white">
-                      Kamera {input.inputId.slice(-6)}
+                      Camera {input.inputId.slice(-6)}
                     </span>
                   </div>
                   <span className="text-xs text-slate-500">
-                    od {formatTime(input.connectedAt)}
+                    since {formatTime(input.connectedAt)}
                   </span>
                 </div>
 
                 {score != null ? (
                   <MotionBar score={score} />
                 ) : (
-                  <div className="text-xs text-slate-500">Oczekiwanie na dane...</div>
+                  <div className="text-xs text-slate-500">Waiting for data...</div>
                 )}
 
                 <button
@@ -101,7 +101,7 @@ export function ConnectedCamerasList({ inputs, motionScores }: ConnectedCamerasL
                   disabled={disconnecting.has(input.inputId)}
                   className="mt-3 w-full rounded border border-red-400/30 px-2.5 py-1 text-xs text-red-400 transition hover:bg-red-400/10 disabled:opacity-50"
                 >
-                  {disconnecting.has(input.inputId) ? 'Rozłączanie...' : 'Rozłącz'}
+                  {disconnecting.has(input.inputId) ? 'Disconnecting...' : 'Disconnect'}
                 </button>
               </div>
             );

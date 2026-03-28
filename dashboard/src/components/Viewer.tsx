@@ -50,14 +50,14 @@ export function Viewer({ reconnectTrigger }: ViewerProps) {
   return (
     <div className="rounded-xl border border-sentinel-border bg-sentinel-card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Podgląd kamer</h2>
+        <h2 className="text-lg font-semibold text-white">Camera Preview</h2>
         <div className="flex items-center gap-3">
           <StatusBadge state={connectionState} />
           <button
             onClick={connect}
             className="rounded bg-cyan-500 px-3 py-1 text-sm font-medium text-black hover:bg-cyan-600"
           >
-            Odśwież
+            Refresh
           </button>
         </div>
       </div>

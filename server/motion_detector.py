@@ -8,10 +8,10 @@ import threading
 import time
 
 
-DIFF_THRESHOLD = 25
-SAMPLE_INTERVAL = 0.5  # seconds between motion score reports
-FRAME_WIDTH = 160
-FRAME_HEIGHT = 120
+DIFF_THRESHOLD = 10
+SAMPLE_INTERVAL = 0.3  # seconds between motion score reports
+FRAME_WIDTH = 320
+FRAME_HEIGHT = 240
 FRAME_BYTES = FRAME_WIDTH * FRAME_HEIGHT  # grayscale = 1 byte per pixel
 
 
@@ -130,40 +130,6 @@ class StreamAnalyzer(threading.Thread):
         print(f"[motion] Stopped analyzer for {self.input_id}", file=sys.stderr)
 
 
-def process_stream_standalone(source: str):
-    """Standalone mode: analyze a single file or stream URL using ffmpeg."""
-    import cv2
-
-    cap = cv2.VideoCapture(source)
-    if not cap.isOpened():
-        print(f"Error: cannot open source '{source}'", file=sys.stderr)
-        sys.exit(1)
-
-    ret, frame = cap.read()
-    if not ret:
-        print("Error: cannot read the first frame", file=sys.stderr)
-        sys.exit(1)
-
-    prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    frame_idx = 0
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        frame_idx += 1
-        curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        flat_prev = prev_gray.flatten()
-        flat_curr = curr_gray.flatten()
-        score = compute_motion_score(flat_prev, flat_curr)
-        print(f"frame {frame_idx:>6d}  motion: {score:5.1f}%")
-        prev_gray = curr_gray
-
-    cap.release()
-    print("Stream ended.")
-
-
 def server_mode():
     """Server mode: read JSON commands from stdin, manage multiple stream analyzers."""
     analyzers: dict[str, StreamAnalyzer] = {}
@@ -210,9 +176,6 @@ def server_mode():
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "--server":
         server_mode()
-    elif len(sys.argv) >= 2:
-        process_stream_standalone(sys.argv[1])
     else:
-        print(f"Usage: python {sys.argv[0]} <h264_file_or_stream_url>")
-        print(f"       python {sys.argv[0]} --server")
+        print(f"Usage: python {sys.argv[0]} --server")
         sys.exit(1)

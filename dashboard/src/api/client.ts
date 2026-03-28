@@ -107,6 +107,31 @@ export async function getRecordings(): Promise<RecordingInfo[]> {
   return recordings;
 }
 
+export async function connectServerVideo(filename: string): Promise<{ inputId: string }> {
+  const res = await fetch('/connect-video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  });
+  if (!res.ok) throw new Error(`Connect video failed: ${res.status}`);
+  return res.json();
+}
+
+export async function listLocalVideos(): Promise<string[]> {
+  const res = await fetch('/api/local-videos');
+  if (!res.ok) throw new Error(`List local videos failed: ${res.status}`);
+  const { videos } = await res.json();
+  return videos;
+}
+
+export async function renameInput(inputId: string, name: string): Promise<void> {
+  await fetch(`/api/inputs/${inputId}/name`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function sendSdp(
   url: string,
   sdp: string,

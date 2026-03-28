@@ -5,3 +5,7 @@
   --color-sentinel-card: #111827;
   --color-sentinel-border: #1E293B;
 }
+
+html, body, #root {
+  height: 100%;
+}
